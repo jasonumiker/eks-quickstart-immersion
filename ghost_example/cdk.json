@@ -1,0 +1,6 @@
+{ 
+    "app": "python ghost_example.py",
+    "context": {
+        "@aws-cdk/aws-secretsmanager:parseOwnedSecretName": true
+    }
+}

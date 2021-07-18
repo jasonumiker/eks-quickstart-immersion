@@ -91,6 +91,34 @@ class EKSClusterStack(core.Stack):
             version=eks.KubernetesVersion.of(self.node.try_get_context("eks_version")),
             default_capacity=0
         )
+        # Output the EKS Cluster Name and Export it
+        core.CfnOutput(
+            self, "EKSClusterName",
+            value=eks_cluster.cluster_name,
+            description="The name of the EKS Cluster",
+            export_name="EKSClusterName"
+        )
+        # Output the EKS Cluster OIDC Issuer and Export it
+        core.CfnOutput(
+            self, "EKSClusterOIDCProviderARN",
+            value=eks_cluster.open_id_connect_provider.open_id_connect_provider_arn,
+            description="The EKS Cluster's OIDC Provider ARN",
+            export_name="EKSClusterOIDCProviderARN"
+        )
+        # Output the EKS Cluster kubectl Role ARN
+        core.CfnOutput(
+            self, "EKSClusterKubectlRoleARN",
+            value=eks_cluster.kubectl_role.role_arn,
+            description="The EKS Cluster's kubectl Role ARN",
+            export_name="EKSClusterKubectlRoleARN"
+        )
+        # Output the EKS Cluster SG ID
+        core.CfnOutput(
+            self, "EKSSGID",
+            value=eks_cluster.kubectl_security_group.security_group_id,
+            description="The EKS Cluster's kubectl SG ID",
+            export_name="EKSSGID"
+        )
 
         # Add a Managed Node Group
         eks_node_group = eks_cluster.add_nodegroup_capacity(

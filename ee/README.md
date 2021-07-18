@@ -1,1 +1,1 @@
-Cloned from https://github.com/aws-quickstart/quickstart-eks-cdk-python on 12/7/21
+Cloned from https://github.com/aws-quickstart/quickstart-eks-cdk-python on 12/7/21 and modified to allow for deployment via Event Engine
