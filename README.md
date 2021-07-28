@@ -22,7 +22,7 @@ Leveraging AWS CodeBuild or another such tool to provision and manage environmen
 
 A few noteworthy things in our template that CDK makes easy:
 
-[TODO copy/paste in interesting stuff from the bootrap CDK .py]
+[TODO copy/paste in interesting stuff from the bootstrap CDK .py]
 
 ### Have a look through the EKS console at our console and workloads
 
@@ -70,13 +70,14 @@ We'll kick off the Ghost CDK deployment (which will take awhile creating the MyS
     1. `pip3 install -r requirements.txt` to install the Python CDK bits
     1. `cdk synth` to generate the CloudFormation from the `ghost_example.py` CDK template and make sure everything is working. It will not only output it to the screen but also store it in the `cdk.out/` folder
     1. `cdk deploy` to deploy template this to our account in a new CloudFormation stack
+    1. Answer `y` to the confirmation and press Enter/Return
 
 ### Understanding what is actually happening while we wait for it to complete
 
 When we run our `ghost_example.py` CDK template there are both AWS and Kubernetes components that CDK provisions for us.
 ![Git Flow Diagram](diagram1.PNG?raw=true "Git Flow Diagram")
 
-We are also adding a new controller/operator to Kubernetes - [kubernetes-external-secrets]() - which is UPSERTing the AWS Secrets Manager secret that CDK is creating into Kubernetes so that we can easily consume this in our Pod(s). This joins the existing [AWS Load Balancer Controller]() which turns our Ingress Specs into an integration/delegation to the AWS Applicaiton Load Balancer (ALB).
+We are also adding a new controller/operator to Kubernetes - [kubernetes-external-secrets]() - which is UPSERTing the AWS Secrets Manager secret that CDK is creating into Kubernetes so that we can easily consume this in our Pod(s). This joins the existing [AWS Load Balancer Controller]() which turns our Ingress Specs into an integration/delegation to the AWS Application Load Balancer (ALB).
 ![Operator Flow Diagram](diagram2.PNG?raw=true "Operator Flow Diagram")
 
 TODO copy and paste examples of how to cross-reference the CDK stacks/objects and how it imports the kube manifest files rather than having you copy/paste them into the template.
@@ -102,7 +103,77 @@ TODO copy and paste examples of how to cross-reference the CDK stacks/objects an
 
 ### Self-managed Prometheus and Grafana
 
+Since the AWS Managed Prometheus and Grafana are not yet available in Sydney, we're going to deploy a community Helm Chart for running them on the cluster for now. We'll revisit this when we can get the AWS managed offering (like we have with the AWS Managed Elasticsearch below) locally.
+
+In order to connect to the Grafana we have provisioned an AWS Network Load Balancer (NLB) in front of it as part of the Quick Start. In the main Quick Start this is provisioned into a *private* subnet in the VPC where you need a VPN (either Client or Site-to-Site) or a DirectConnect to reach it. For the purposes of this lab we changed it to be exposed to the Internet.
+
+To connect to it:
+1. If you are not still in the SSM Session to the Bastion as in the previous section re-open that
+1. If your terminal says sh-4.2$ instead of root@... then run a `sudo bash` command to become root
+1. Run `kubectl get service grafana-nlb --namespace=kube-system`
+1. The EXTERNAL-IP listed there is the address of the public load balancer - copy and paste that into your browser
+1. You'll see a login screen - the username is admin and the password is prom-operator
+
+There are some default dashboards that ship with this which you can see by going to Home on top. This will take you to a list view of the available dashboards. Some good ones to check out include:
+* `Kubernetes / Compute Resources / Cluster` - This gives you a whole cluster view
+* `Kubernetes / Compute Resources / Namespace (Pods)` - There is a namespace dropdown at the top and it'll show you the graphs including the consumption in that namespace broken down by Pod
+* `Kubernetes / Compute Resources / Namespace (Workloads)` - Similar to the Pod view but instead focuses on Deployment, StatefulSet and DaemonSet views
+
+Within all of these dashboards you can click on names as links and it'll drill down to show you details relevant to that item.
+
 ### AWS Managed Elasticsearch and Kibana
+
+We have also configured a fluent-bit DaemonSet to ship all our container logs to an AWS Managed Elasticsearch. You search/visualise/filter these in the Kibana UI.
+
+In the main Quick Start this is provisioned into a *private* subnet in the VPC where you need a VPN (either Client or Site-to-Site) or a DirectConnect to reach it. For the purposes of this lab we changed it to be exposed to the Internet.
+
+Since there is no login/password associated with Kibana in our setup, we are going to only allow your IP address to connect rather than the whole Internet. Note that for production use we would encourage you to set up SAML or Cognito for authentication as described here - https://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/saml.html and https://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/es-cognito-auth.html.
+
+First go to https://www.whatismyip.com/ and note your IP address
+
+To allow our IP address access to Kibana:
+1. Go to the Elasticsearch service in the AWS Console
+1. Click on the name of the one Elasticsearch Domain that you see (it is a link)
+1. Click on the `Actions` button on the top and choose `Modify access policy`
+1. Put a comma after the bracket of the first statement and add a 2nd statement as follows - replacing 1.1.1.1 with your IP from https://www.whatismyip.com:
+```
+{
+  "Effect": "Allow",
+  "Principal": {
+    "AWS": "*"
+  },
+  "Action": [
+    "es:*"
+  ],
+  "Condition": {
+    "IpAddress": {
+      "aws:SourceIp": [
+        "1.1.1.1"
+      ]
+    }
+  },
+  "Resource": "*"
+}
+```
+
+Then to connect to Kibana and see what we can do there:
+1. If you are not already there go to the Elasticsearch service in the AWS Console and click on the link that is the name of the Domain
+1. Click on the link next to `Kibana`
+1. Click "Explore on my own" in the Welcome page
+1. Click "Connect to your Elasticsearch index" under "Use Elasticsearch Data"
+1. Close the About index patterns box
+1. Click the Create Index Pattern button
+1. In the Index pattern name box enter `fluent-bit` and click Next step
+1. Pick `@timestamp` from the dropbown box and click Create index pattern
+1. Then go back Home and click Discover
+1. This is showing you all the logs from all the containers aggregated together. Let's see how to drill down a bit:
+    1. The search box uses Kibana Query Language (KQL) - there is a guide to it here - https://www.elastic.co/guide/en/kibana/current/kuery-query.html
+    1. If we wanted to only see logs that came from kubernetes Pods with the label app then we could type `kubernetes.labels.app: *` into the Search box and hit Enter/Return
+    1. By default it is also showing us things from the last 15 minutes based on the field to the right of the Search box. If we wanted to increase that to anytime today we could click the Calendar button on the left of that and click the `Today` link
+    1. Now we are seeing all the logs from Pods with the label app it received Today. To drill down further and only see log lines from the Ghost app we could change our KQL Search to be `kubernetes.labels.app: ghost`
+    1. Now we are seeing all our logs from the Ghost Pods. If you click the > on the left hand side of one of those lines you'll see all the fields shipped with the logs. Click on the JSON tab to see the raw JSON that each record is sent to Elasticsearch from fluent-bit - and all the metadata wrapped around that log field you can search or filter on.
+
+Given that you often have many Pods behind each service which come and go being able to aggregate them all together and search/filter/visualise them is an important capability in running your EKS environment(s).
 
 ## Demonstrate EBS and EFS PersistentVolumes via the included CSI Driver
 
@@ -181,6 +252,45 @@ So as you can see the EFS CSI Driver add-on, that the Quick Start set up for us,
 
 ## Demonstrate the Horizontal Pod Autoscaler (HPA) and the Cluster Autoscaler
 
-## (Optional - if finished the workshop quickly - takes awhile) Upgrading our EKS and then the Managed Node Group to 1.21
+### Horizontal Pod Autoscaler (HPA)
 
-As you may have seen in the banners in the Console there is an upgrade available for the cluster (it is version 1.20 and it can go to 1.21). In order to upgrade the cluster via the CDK there are two steps:
+The Horizontal Pod Autoscaler (HPA) will increase or decrease the number of Pods that are running behind a ReplicaSet in response to metrics you specify like CPU.
+
+The HPA is built in to Kubernetes and EKS - but it requires the metrics-server in order to function which is not. We deploy that as part of the Quick Start so that the HPA will work for you.
+
+To demonstrate this working there is a demo provided by Kubernetes described at https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/
+
+Have a look through that page describing the demo and then do it by:
+1. If you are not still in the SSM Session to the Bastion as in the previous section re-open that
+1. If your terminal says sh-4.2$ instead of root@... then run a `sudo bash` command to become root
+1. Run:
+  1. `kubectl apply -f https://k8s.io/examples/application/php-apache.yaml` to deploy the sample Deployment and Service that we want to autoscale
+  1. `kubectl autoscale deployment php-apache --cpu-percent=50 --min=1 --max=10` to tell Kubernetes to scale up/down our Deployment targetting 50% CPU utilisation (i.e. scale up if above 50 and down if below 50)
+  1. `kubectl describe hpa` to see/confirm the details of the autoscaling we asked for
+  1. `kubectl run -it --rm load-generator --image=busybox /bin/sh` to run a new busybox container and connect to an interactive shell on it
+  1. `while true; do wget -q -O- http://php-apache; done` to generate load against our service
+1. Open another SSM Session to our Bastion from the EC2 service console
+1. Run:
+  1. `sudo bash`
+  1. `kubectl describe hpa php-apache` and see that it has started to scale up the service
+1. Go back to the origional Session Manager (with the flood of OK!s) and do a Ctrl-C to stop generating the load and type `exit`
+1. If you run `kubectl describe hpa php-apache again` in a minute you'll see that it scales back down
+
+### Cluster Autoscaler (CA)
+
+If the Pods scale out enough then you need to also scale out your Nodes in order to have enough capacity to accommodate them - that is where the Cluster Autoscaler (CA) comes in.
+
+By default (and as deployed in our Quick Start) it will add more Nodes (by increasing the desired capacity of their Auto Scaling Group (ASG) in AWS) when Pods can't be scheduled due to insufficient capacity.
+
+To see this in action we'll deploy too many things for our cluster. To to that:
+1. If you are not still in the SSM Session to the Bastion as in the previous section re-open that
+1. If your terminal says sh-4.2$ instead of root@... then run a `sudo bash` command to become root
+1. Run:
+  1. `kubectl scale deployment ghost --replicas 20` which will tell kubernetes we now want 20 of our ghost Pods instead of our current 1. As these have 1vCPU and 1GB of RAM each we now need 20 vCPUs and 20GB of RAM.
+  1. `kubectl get pods` to see all of the Pending Pods
+1. If you wait a minute or two and then run `kubectl get nodes` you'll see more Nodes have launched and then, in turn, if you run `kubectl get pods` you'll see that more of the Pods have been able to launch onto those new Nodes
+1. If you scale ghost back down with a `kubectl scale deployment ghost --replicas 2` the CA will scale the Nodes back down again eventually too.
+
+We specified a Maximum of our Managed Node Group capacity of 4 which is why it stopped when it reached 4. This parameter be changed in the cdk.json file in `ee/cluster-bootstrap/`.
+
+You can find out more about the use of Cluster Autoscaler in the EKS Documentation - https://docs.aws.amazon.com/eks/latest/userguide/cluster-autoscaler.html#ca-deployment-considerations

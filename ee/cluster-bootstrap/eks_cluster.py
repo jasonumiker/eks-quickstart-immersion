@@ -124,6 +124,7 @@ class EKSClusterStack(core.Stack):
         eks_node_group = eks_cluster.add_nodegroup_capacity(
             "cluster-default-ng",
             desired_size=self.node.try_get_context("eks_node_quantity"),
+            max_size=self.node.try_get_context("eks_node_max_quantity"),
             disk_size=self.node.try_get_context("eks_node_disk_size"),
             # The default in CDK is to force upgrades through even if they violate - it is safer to not do that
             force_update=False,
@@ -615,7 +616,11 @@ class EKSClusterStack(core.Stack):
                             "name": "clusterautoscaler"
                         }
                     },
-                    "replicaCount": 2
+                    "replicaCount": 2,
+                    "extraArgs": {
+                        "skip-nodes-with-system-pods": False,
+                        "balance-similar-node-groups": True
+                    }
                 }
             )
             clusterautoscaler_chart.node.add_dependency(clusterautoscaler_service_account)
@@ -822,12 +827,15 @@ class EKSClusterStack(core.Stack):
             metricsserver_chart = eks_cluster.add_helm_chart(
                 "metrics-server",
                 chart="metrics-server",
-                version="5.8.11",
+                version="5.9.1",
                 release="metricsserver",
                 repository="https://charts.bitnami.com/bitnami",
                 namespace="kube-system",
                 values={
-                    "replicas": 2
+                    "replicas": 2,
+                    "apiService": {
+                        "create": True
+                    }
                 }
             )
 

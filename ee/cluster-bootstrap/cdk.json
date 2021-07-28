@@ -1,4 +1,3 @@
-  
 { 
     "app": "python eks_cluster.py",
     "context": {
@@ -12,6 +11,7 @@
         "existing_vpc_name": "VPC",
         "eks_version": "1.20",
         "eks_node_quantity": 2,
+        "eks_node_max_quantity": 4,
         "eks_node_disk_size": 20,
         "eks_node_instance_type": "m5.large",
         "eks_node_ami_version": "1.20.4-20210722",
