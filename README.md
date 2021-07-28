@@ -488,9 +488,9 @@ By default, even though Calico is there, all traffic is allowed. If we wanted to
 1. If your terminal says sh-4.2$ instead of root@... then run a `sudo bash` command to become root
 1. Run:
   1. `cd ~/eks-quickstart-immersion/networkpolicy_example`
-  1. `cat network-policy-default-deny.yaml` to see what a policy to deny all traffic is. This will apply only to whatever namespace we deploy it into (in this case default) - not cluster-wide.
+  1. `cat network-policy-default-deny.yaml` to see what a policy to deny all Ingress traffic is. FYI this will apply only to whatever namespace we deploy it into (in this case default) - not cluster-wide.
   1. `kubectl apply -f network-policy-default-deny.yaml` to move to denying all traffic in our default namespace including Ghost
-  1. Go to the Ghost address (which you can find with a `kubectl get ingresses`) and note how this has blocked the ALB from reaching Ghost.
+  1. Go to the Ghost address (which you can find with a `kubectl get ingresses`) and note how this has blocked the ALB from reaching Ghost. Now we need to specifically allow any Ingress traffic that we want to happen.
   1. `cat network-policy-allow-ghost.yaml` to see our policy that will allow traffic to any Pods with the label `app: ghost` from anywhere on port 2368.
   1. `kubectl apply -f network-policy-allow-ghost.yaml`
   1. Within a few seconds the service should be reachable through the ALB again.
