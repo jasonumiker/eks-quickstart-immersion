@@ -634,11 +634,18 @@ class EKSClusterStack(core.Stack):
                 volume_size=self.node.try_get_context("es_ebs_volume_size")
             )
 
+            # Create the Service Account
+            fluentbit_service_account = eks_cluster.add_service_account(
+                "fluentbit",
+                name="fluentbit",
+                namespace="kube-system"
+            )
+
             es_access_policy_statement_json_1 = {
                 "Effect": "Allow",
                 "Action": "es:*",
                 "Principal": {
-                    "AWS": "*"
+                    "AWS": fluentbit_service_account.role.role_arn
                 },
                 "Resource": "*"
             }
@@ -671,14 +678,7 @@ class EKSClusterStack(core.Stack):
                 #security_groups=[elastic_security_group],
                 capacity=es_capacity,
                 ebs=es_ebs,
-                #access_policies=[iam.PolicyStatement.from_json(es_access_policy_statement_json_1)]
-            )
-            
-            # Create the Service Account
-            fluentbit_service_account = eks_cluster.add_service_account(
-                "fluentbit",
-                name="fluentbit",
-                namespace="kube-system"
+                access_policies=[iam.PolicyStatement.from_json(es_access_policy_statement_json_1)]
             )
 
             fluentbit_policy_statement_json_1 = {
@@ -693,7 +693,6 @@ class EKSClusterStack(core.Stack):
 
             # Add the policies to the service account
             fluentbit_service_account.add_to_policy(iam.PolicyStatement.from_json(fluentbit_policy_statement_json_1))
-            es_domain.grant_write(fluentbit_service_account)
 
             # For more info check out https://github.com/fluent/helm-charts/tree/main/charts/fluent-bit
             fluentbit_chart = eks_cluster.add_helm_chart(
@@ -1268,6 +1267,8 @@ class EKSClusterStack(core.Stack):
             bastion_instance.user_data.add_commands("curl -o fluxctl https://github.com/fluxcd/flux/releases/download/1.22.1/fluxctl_linux_amd64")
             bastion_instance.user_data.add_commands("chmod +x ./fluxctl")
             bastion_instance.user_data.add_commands("mv ./fluxctl /usr/bin")
+            bastion_instance.user_data.add_commands("curl --silent --location https://rpm.nodesource.com/setup_14.x | bash -")
+            bastion_instance.user_data.add_commands("yum install nodejs git -y")
 
             # Wait to deploy Bastion until cluster is up and we're deploying manifests/charts to it
             # This could be any of the charts/manifests I just picked this one at random
