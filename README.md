@@ -2,11 +2,13 @@
 
 This workshop is explaining how to use the new [AWS Quick Start for EKS based on CDK in Python](https://github.com/aws-quickstart/quickstart-eks-cdk-python) to build out an example EKS environment.
 
-It will also touch on how to use CDK as a tool to manage your workloads on top of Kubernetes in addition to provisioning the cluster together with the required infrastructure add-ons.
+It will also touch on how to use CDK as a tool to manage your workloads on top of EKS in addition to provisioning the cluster together with the required infrastructure add-ons as a more complete and production-ready Kubernetes environment.
+
+This is new content made for this ISV Event and so the good news is that you'll never have seen it before. The bad news is that you are the first group to actually go through it - so there may be issues you only find that first time a big group of people go through it. Please let me know any feedback on how it can be improved!
 
 ## Explore the CDK environment that has already been deployed into the account for you
 
-In the interests of time, we have already deployed the EKS Quick Start into this account for you. This process takes a little under 30 minutes end-to-end. You can see the template which deployed it in the file `ee/cluster-bootstrap/eks_cluster.py`. Note that some of the parameters that the template references are stored in `ee/cluster-bootstrap/cdk.json`.
+In the interests of time, we have already deployed the EKS Quick Start into this account for you. This process takes a little under 30 minutes end-to-end which I didn't imagine you wanted to sit around waiting for! You can see the template which deployed it in the file `ee/cluster-bootstrap/eks_cluster.py`. Note that some of the parameters that the template references are stored in `ee/cluster-bootstrap/cdk.json`. And you can see the commands that CodeBuild ran in `ee/cluster-bootstrap/buildspec.yml`.
 
 If you want to see how long it actually took, it was actually deployed via AWS CodeBuild (which ran the `cdk deploy` command for us) as the last step of setting up your account in Event Engine. To check that out:
 1. Go the AWS Console
@@ -16,7 +18,7 @@ If you want to see how long it actually took, it was actually deployed via AWS C
 1. To see the logs of the process click on the link under `Build run`
 1. Scroll down to see the CDK log output of the process
 
-Leveraging AWS CodeBuild or another such tool to provision and manage environments with this template via GitOps practices like this - instead of doing it by hand from a Bastion or somebody's laptop especially - has many benefits.
+Leveraging AWS CodeBuild, or another such tool, to provision and manage your environment(s) with this template via GitOps practices (firing it when you merge changes to the template or its parameters) like this - instead of doing it by hand from a Bastion or somebody's laptop especially - has many benefits.
 
 ### Exploring our CDK template(s) and CDK's benefits here
 
@@ -110,7 +112,9 @@ A few noteworthy things that make the CDK a great tool for provisioning these EK
       }
   )
   ```
-* Finally, CDK supports dynamic references back and forth even between AWS things and Kubernetes things. Here we're able to say "please fill in this Kubernetes Manifest with the name of a secret that will be randomly generated when the CDK makes the RDS database in question. This also means it knows the RDS needs to be created *before* the manifest:
+* CDK embeds in many of our best practices and is more opinionated than CloudFormation. It actually does more for you the less specific you are / the fewer parameters you give it. A good example is with the RDS database construct - unlike with CloudFormation, if you don't give it a password it instead creates one in Secrets Manager for you instead. The resulting CloudFormation is more complex the simpler the CDK code is as we give you our best practices by default at the CDK layer. You can override those by being more specific about what you want in your parameters.
+
+* Finally, CDK supports dynamic references back and forth even between AWS things and Kubernetes things. Here we're able to say "please fill in this Kubernetes Manifest with the name of a secret that will be randomly generated when the CDK makes the RDS database in question. These parameters/references are automatically completed by things like VSCode too (which I'll demo for you). This also means it knows the RDS needs to be created *before* the manifest:
 
 ```
 # Map in the secret for the ghost DB
@@ -179,7 +183,7 @@ eks_cluster.add_manifest("GhostExternalSecret",{
     1. This gives you a sense of all the add-ons that the Quick Start has set up on our cluster for us. If this was a new EKS cluster without the Quick Start you'd only see three things (kube-proxy, coredns and aws-node (our CNI)). 
     1. Also note all the Add-ons we've deployed we've put in the kube-system namespace so you'll need to specify that if you want to interact with these
 
-NOTE: The authentication to the cluster was based on the IAM Role assigned to our Bastion Instance being set up by the Quick Start with the necessary access to the Cluster. This IAM role assignment functionality automatically provides and rotates AWS Access Keys and Secrets to our Bastion that are leveraged by our ~/.kube/config and kubectl to 'just work'. You can do similar things with AWS CodeBuild or Lambda or any other AWS service where you can assign an AWS IAM Role.
+NOTE: The authentication to the cluster was based on the IAM Role assigned to our Bastion Instance being set up by the Quick Start with the necessary access to the Cluster ([being mapped in via the aws-auth ConfigMap](https://docs.aws.amazon.com/eks/latest/userguide/add-user-role.html)). This IAM role assignment functionality automatically provides and rotates AWS Access Keys and Secrets to our Bastion that are leveraged by our ~/.kube/config and kubectl to 'just work'. You can do similar things with AWS CodeBuild or Lambda or any other AWS service where you can assign an AWS IAM Role.
 
 ## Install Ghost via another loosely coupled CDK Stack
 
@@ -205,6 +209,22 @@ When we run our `ghost_example.py` CDK template there are both AWS and Kubernete
 We are also adding a new controller/operator to Kubernetes - [kubernetes-external-secrets](https://github.com/external-secrets/kubernetes-external-secrets) - which is UPSERTing the AWS Secrets Manager secret that CDK is creating into Kubernetes so that we can easily consume this in our Pod(s). This joins the existing [AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.2/) which turns our Ingress Specs into an integration/delegation to the AWS Application Load Balancer (ALB).
 ![Operator Flow Diagram](diagram2.PNG?raw=true "Operator Flow Diagram")
 
+### Bringing in our YAML Manifest files directly
+
+You'll notice that rather than copying/pasting the YAML mainifests into our Python template as JSON (as we did for a few things in eks_cluster.py) here we added some code using a Python library called pyaml to import the files at runtime. This allows people to deal with their Kubernetes manifest files directly but CDK to facilitate their deployment.
+
+```
+import yaml
+
+...
+
+ghost_deployment_yaml_file = open("ghost-deployment.yaml", 'r')
+ghost_deployment_yaml = yaml.load(ghost_deployment_yaml_file, Loader=yaml.FullLoader)
+ghost_deployment_yaml_file.close()
+#print(ghost_deployment_yaml)
+eks_cluster.add_manifest("GhostDeploymentManifest",ghost_deployment_yaml)
+```
+
 ### Cross-Stack CDK
 
 We're deploying Ghost in a totally seperate CDK stack in a seperate file. This is made possible by a few things:
@@ -215,6 +235,18 @@ vpc = ec2.Vpc.from_lookup(self, 'VPC', vpc_name="EKSClusterStack/VPC")
 1. Other Constructs like EKS we need to tell it several of the parameters for it to reconstruct the object. Here we need to tell it a few things like the `open_id_connect_provider`, the `kubectl_role_arn`, etc. for it to give us an object we can call/use like we'd created the EKS cluster in *this* template. 
 
 We pass these parameters across our Stacks using CloudFormation Exports (Outputs in one CF stack we can reference in another):
+
+Here is an example of exporting the things we need in eks_cluster.py
+```
+core.CfnOutput(
+    self, "EKSClusterName",
+    value=eks_cluster.cluster_name,
+    description="The name of the EKS Cluster",
+    export_name="EKSClusterName"
+)
+```
+
+And here is an example of importing them in ghost_example.py to reconstitute an eks.Cluster object from the required attributes.
 ```
 eks_cluster = eks.Cluster.from_cluster_attributes(
   self, "cluster",
@@ -229,13 +261,14 @@ eks_cluster = eks.Cluster.from_cluster_attributes(
   kubectl_private_subnet_ids=[vpc.private_subnets[0].subnet_id, vpc.private_subnets[1].subnet_id]
 )
 ```
+And here is what those Exports look like in the CloudFormation console
 ![CF Exports](diagram3.PNG?raw=true "CF Exports")
 
 ### Once the deployment finishes we'll explore what now exists and connect to Ghost
 
 1. Run `kubectl get ingresses` to see the address for the ALB in front of our service
 1. Go to that address in your web browser to see the service
-1. Go to that address with the path `/ghost` appended to the end to get to the management interface. Set up an initial account there (before some random person on the Internet does it for you!)
+1. In your browser append a `/ghost` to the end of the address to get to the Ghost management interface. Set up your initial account there (before some random person/bot on the Internet does it for you!)
 1. Go to the EC2 Service in the AWS Console
 1. Go to `Load Balancers` on the left hand navigation pane
 1. Select the `k8s-default-ghost-...` Load Balancer - this is the ALB that the AWS Ingress Controller created for us
@@ -252,7 +285,7 @@ eks_cluster = eks.Cluster.from_cluster_attributes(
 
 ### Self-managed Prometheus and Grafana
 
-Since the AWS Managed Prometheus and Grafana are not yet available in Sydney, we're going to deploy the [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) for running them on the cluster for now. We'll revisit this when we can get the AWS managed offering (like we have with the AWS Managed Elasticsearch below) locally.
+Since the AWS Managed Prometheus and Grafana are not yet available in Sydney, we're going to deploy the [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) which is a community maintained solution for running them on our cluster for now (we'll revisit this when we can get the AWS managed offering locally).
 
 In order to connect to the Grafana we have provisioned an AWS Network Load Balancer (NLB) in front of it as part of the Quick Start. In the main Quick Start this is provisioned into a *private* subnet in the VPC where you need a VPN (either Client or Site-to-Site) or a DirectConnect to reach it. For the purposes of this lab we changed it to be exposed to the Internet.
 
@@ -284,7 +317,7 @@ To allow our IP address access to Kibana:
 1. Go to the Elasticsearch service in the AWS Console
 1. Click on the name of the one Elasticsearch Domain that you see (it is a link)
 1. Click on the `Actions` button on the top and choose `Modify access policy`
-1. Put a comma after the bracket of the first statement and add a 2nd statement as follows - replacing 1.1.1.1 with your IP from https://www.whatismyip.com:
+1. Put a comma after the bracket `}` of the first statement and add a 2nd statement as follows - replacing 1.1.1.1 with your IP from https://www.whatismyip.com:
 ```
 {
   "Effect": "Allow",
@@ -330,7 +363,9 @@ Given that you often have many Pods behind each service which come and go being 
 
 Elastic Block Storage (EBS) is the AWS block storage service in AWS. We've integrated it with our EKS environment by adding the CSI driver AWS maintains to the cluster as an add-on in the Quick Start.
 
-Let's see an example of how that is used.
+NOTE: There is deprecated support built-in to Kubernetes for EBS. Once Kubernetes built a mechanism to make this pluggable in the CSI driver construct work each vendor is going on integrating Kubernetes with their storage offerings has shifted to these drivers (which do not involve having to get your changes merged into kubernetes releases so can be iterated on much more quickly and independently). EKS doesn't include the CSI Driver so you want to make sure to deploy it and use it if you are using EBS volumes within EKS.
+
+Let's see an example of how that is used:
 
 1. If you are not still in the SSM Session to the Bastion as in the previous section re-open that
 1. If your terminal says sh-4.2$ instead of root@... then run a `sudo bash` command to become root
@@ -403,9 +438,9 @@ So as you can see the EFS CSI Driver add-on, that the Quick Start set up for us,
 
 ### Horizontal Pod Autoscaler (HPA)
 
-The Horizontal Pod Autoscaler (HPA) will increase or decrease the number of Pods that are running behind a ReplicaSet in response to metrics you specify like CPU.
+The Horizontal Pod Autoscaler (HPA) will increase or decrease the number of Pods that are running behind a ReplicaSet in response to metrics you specify like CPU utilisation.
 
-The HPA is built in to Kubernetes and EKS - but it requires the metrics-server in order to function which is not. The metrics-server is also required for various other things like the `kubectl top` command to work. So, we deploy it as part of the Quick Start.
+The HPA is built in to Kubernetes and EKS - but it requires the `metrics-server` in order to function which is not. The metrics-server is also required for various other things like the `kubectl top` command to work. So, we deploy it for you as part of the Quick Start.
 
 To demonstrate the HPA working there is a demo provided by Kubernetes described at https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/
 
@@ -414,7 +449,7 @@ Have a look through that page describing the demo and then do it by:
 1. If your terminal says sh-4.2$ instead of root@... then run a `sudo bash` command to become root
 1. Run:
   1. `kubectl apply -f https://k8s.io/examples/application/php-apache.yaml` to deploy the sample Deployment and Service that we want to autoscale
-  1. `kubectl autoscale deployment php-apache --cpu-percent=50 --min=1 --max=10` to tell Kubernetes to scale up/down our Deployment targetting 50% CPU utilisation (i.e. scale up if above 50 and down if below 50)
+  1. `kubectl autoscale deployment php-apache --cpu-percent=50 --min=1 --max=10` to tell Kubernetes to scale up/down our Deployment targetting 50% CPU utilisation (i.e. scale up if above 50% and down if below 50%)
   1. `kubectl describe hpa` to see/confirm the details of the autoscaling we asked for
   1. `kubectl run -it --rm load-generator --image=busybox /bin/sh` to run a new busybox container and connect to an interactive shell on it
   1. `while true; do wget -q -O- http://php-apache; done` to generate load against our service
@@ -443,3 +478,23 @@ To see this in action we'll deploy too many things for our cluster. To to that:
 We specified a Maximum of our Managed Node Group capacity of 4 which is why it stopped when it reached 4. This parameter be changed in the cdk.json file in `ee/cluster-bootstrap/`.
 
 You can find out more about the use of Cluster Autoscaler in the EKS Documentation - https://docs.aws.amazon.com/eks/latest/userguide/cluster-autoscaler.html#ca-deployment-considerations
+
+## Network Policies
+
+The firewall construct built-in to Kubernetes is called NetworkPolicies. EKS doesn't ship with the component so doesn't enforce these policies out-of-the-box. The Quick Start includes Calico's component to enforce these policies.
+
+By default, even though Calico is there, all traffic is allowed. If we wanted to *only* allow the traffic that we want we can submit a default-deny policy covering workloads in the default namespace by:
+1. If you are not still in the SSM Session to the Bastion as in the previous section re-open that
+1. If your terminal says sh-4.2$ instead of root@... then run a `sudo bash` command to become root
+1. Run:
+  1. `cd ~/eks-quickstart-immersion/networkpolicy_example`
+  1. `cat network-policy-default-deny.yaml` to see what a policy to deny all traffic is. This will apply only to whatever namespace we deploy it into (in this case default) - not cluster-wide.
+  1. `kubectl apply -f network-policy-default-deny.yaml` to move to denying all traffic in our default namespace including Ghost
+  1. Go to the Ghost address (which you can find with a `kubectl get ingresses`) and note how this has blocked the ALB from reaching Ghost.
+  1. `cat network-policy-allow-ghost.yaml` to see our policy that will allow traffic to any Pods with the label `app: ghost` from anywhere on port 2368.
+  1. `kubectl apply -f network-policy-allow-ghost.yaml`
+  1. Within a few seconds the service should be reachable through the ALB again.
+
+  There are a number of good example Network Policies at this GitHub repo I refer to when I am refreshing my memory here - https://github.com/ahmetb/kubernetes-network-policy-recipes 
+
+  NOTE: It is also possible to use the new [Security group for pods](https://docs.aws.amazon.com/eks/latest/userguide/security-groups-for-pods.html) feature of EKS to do firewalling with AWS Security Groups instead. We have not yet worked that into the Quick Start but it is on the roadmap.

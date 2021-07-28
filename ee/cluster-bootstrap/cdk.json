@@ -31,7 +31,7 @@
         "alertmanager_disk_size": "2Gi",
         "grafana_disk_size": "10Gi",
         "deploy_metrics_server": "True",
-        "deploy_calico_np": "False",
+        "deploy_calico_np": "True",
         "deploy_ssm_agent": "True",
         "deploy_bastion": "True",
         "bastion_node_type": "t3.large",
