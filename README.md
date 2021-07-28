@@ -252,7 +252,7 @@ eks_cluster = eks.Cluster.from_cluster_attributes(
 
 ### Self-managed Prometheus and Grafana
 
-Since the AWS Managed Prometheus and Grafana are not yet available in Sydney, we're going to deploy a community Helm Chart for running them on the cluster for now. We'll revisit this when we can get the AWS managed offering (like we have with the AWS Managed Elasticsearch below) locally.
+Since the AWS Managed Prometheus and Grafana are not yet available in Sydney, we're going to deploy the [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) for running them on the cluster for now. We'll revisit this when we can get the AWS managed offering (like we have with the AWS Managed Elasticsearch below) locally.
 
 In order to connect to the Grafana we have provisioned an AWS Network Load Balancer (NLB) in front of it as part of the Quick Start. In the main Quick Start this is provisioned into a *private* subnet in the VPC where you need a VPN (either Client or Site-to-Site) or a DirectConnect to reach it. For the purposes of this lab we changed it to be exposed to the Internet.
 
@@ -405,9 +405,9 @@ So as you can see the EFS CSI Driver add-on, that the Quick Start set up for us,
 
 The Horizontal Pod Autoscaler (HPA) will increase or decrease the number of Pods that are running behind a ReplicaSet in response to metrics you specify like CPU.
 
-The HPA is built in to Kubernetes and EKS - but it requires the metrics-server in order to function which is not. We deploy that as part of the Quick Start so that the HPA will work for you.
+The HPA is built in to Kubernetes and EKS - but it requires the metrics-server in order to function which is not. The metrics-server is also required for various other things like the `kubectl top` command to work. So, we deploy it as part of the Quick Start.
 
-To demonstrate this working there is a demo provided by Kubernetes described at https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/
+To demonstrate the HPA working there is a demo provided by Kubernetes described at https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/
 
 Have a look through that page describing the demo and then do it by:
 1. If you are not still in the SSM Session to the Bastion as in the previous section re-open that
