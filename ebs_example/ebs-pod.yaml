@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: myebsclaim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ebs-storageclass
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: storage-test-ebs
+spec:
+  containers:
+  - name: "storage-test"
+    image: "ubuntu:latest"
+    command: ["/bin/sleep"]
+    args: ["infinity"]
+    volumeMounts:
+      - name: myebs
+        mountPath: /mnt/test
+  volumes:
+  - name: myebs
+    persistentVolumeClaim:
+      claimName: myebsclaim

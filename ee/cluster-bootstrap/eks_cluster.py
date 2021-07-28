@@ -549,16 +549,22 @@ class EKSClusterStack(core.Stack):
             awsefscsi_chart = eks_cluster.add_helm_chart(
                 "aws-efs-csi-driver",
                 chart="aws-efs-csi-driver",
-                version="2.1.3",
+                version="2.1.4",
                 release="awsefscsidriver",
                 repository="https://kubernetes-sigs.github.io/aws-efs-csi-driver/",
                 namespace="kube-system",
                 values={
-                    "serviceAccount": {
-                        "controller": {
+                    "controller": {
+                        "serviceAccount": {
                             "create": False,
                             "name": "awsefscsidriver"
                         }
+                    },
+                    "node": {
+                        "serviceAccount": {
+                            "create": False,
+                            "name": "awsefscsidriver"
+                        }    
                     }
                 }
             )

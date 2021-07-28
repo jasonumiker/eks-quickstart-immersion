@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: myefsclaim
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-storageclass
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: storage-test-efs
+spec:
+  containers:
+  - name: "storage-test"
+    image: "ubuntu:latest"
+    command: ["/bin/sleep"]
+    args: ["infinity"]
+    volumeMounts:
+      - name: myefs
+        mountPath: /mnt/test
+  volumes:
+  - name: myefs
+    persistentVolumeClaim:
+      claimName: myefsclaim
