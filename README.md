@@ -18,13 +18,138 @@ If you want to see how long it actually took, it was actually deployed via AWS C
 
 Leveraging AWS CodeBuild or another such tool to provision and manage environments with this template via GitOps practices like this - instead of doing it by hand from a Bastion or somebody's laptop especially - has many benefits.
 
-### Exploring ee/cluster-bootstrap/eks_cluster.py
+### Exploring our CDK template(s) and CDK's benefits here
 
-A few noteworthy things in our template that CDK makes easy:
+The two CDK templates we'll be using today are `ee/cluster-bootstrap/eks_cluster.py` and `ghost_example/ghost_example.py`.
 
-[TODO copy/paste in interesting stuff from the bootstrap CDK .py]
+A few noteworthy things that make the CDK a great tool for provisioning these EKS environments:
 
-### Have a look through the EKS console at our console and workloads
+* CDK makes setting up [IAM Role to Service Account (IRSA) mappings](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html) easy. And since much of the Add-ons we're setting up with the cluster are to integrate it better with AWS, and thus require AWS API access, this is important.
+
+  ```
+  # Create the Kubernetes Service Account and corresponding IAM Role
+  awsebscsidriver_service_account = eks_cluster.add_service_account(
+    "awsebscsidriver",
+    name="awsebscsidriver",
+    namespace="kube-system"
+  )
+
+  # Create the PolicyStatements to attach to the IAM role
+  awsebscsidriver_policy_statement_json_1 = {
+      "Effect": "Allow",
+      "Action": [
+          "ec2:AttachVolume",
+          "ec2:CreateSnapshot",
+          "ec2:CreateTags",
+          "ec2:CreateVolume",
+          "ec2:DeleteSnapshot",
+          "ec2:DeleteTags",
+          "ec2:DeleteVolume",
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeInstances",
+          "ec2:DescribeSnapshots",
+          "ec2:DescribeTags",
+          "ec2:DescribeVolumes",
+          "ec2:DescribeVolumesModifications",
+          "ec2:DetachVolume",
+          "ec2:ModifyVolume"
+      ],
+      "Resource": "*"
+  }
+
+  # Attach our PolicyStatement to the IAM Role
+  awsebscsidriver_service_account.add_to_policy(iam.PolicyStatement.from_json(awsebscsidriver_policy_statement_json_1))
+  ```
+
+* CDK extends Cloudformation to be able to deploy [Kubernetes manifests](https://docs.aws.amazon.com/cdk/api/latest/docs/@aws-cdk_aws-eks.Cluster.html#addwbrmanifestid-manifest) (though converted to JSON) as well as [Helm Charts](https://docs.aws.amazon.com/cdk/api/latest/docs/@aws-cdk_aws-eks.Cluster.html#addwbrhelmwbrchartid-options).
+
+  ```
+  # Deploy an internal NLB in to Grafana
+  grafananlb_manifest = eks_cluster.add_manifest("GrafanaNLB",{
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "grafana-nlb",
+      "namespace": "kube-system",
+      "annotations": {
+        "service.beta.kubernetes.io/aws-load-balancer-type": "nlb-ip",
+        "service.beta.kubernetes.io/aws-load-balancer-internal": "false"
+      }
+    },
+    "spec": {
+      "ports": [
+      {
+        "name": "service",
+        "protocol": "TCP",
+        "port": 80,
+        "targetPort": 3000
+      }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "grafana"
+      },
+      "type": "LoadBalancer"
+    }
+  })
+  ```
+
+  ```
+  # Install the metrics-server (required for the HPA)
+  metricsserver_chart = eks_cluster.add_helm_chart(
+      "metrics-server",
+      chart="metrics-server",
+      version="5.9.1",
+      release="metricsserver",
+      repository="https://charts.bitnami.com/bitnami",
+      namespace="kube-system",
+      values={
+          "replicas": 2,
+          "apiService": {
+              "create": True
+          }
+      }
+  )
+  ```
+* Finally, CDK supports dynamic references back and forth even between AWS things and Kubernetes things. Here we're able to say "please fill in this Kubernetes Manifest with the name of a secret that will be randomly generated when the CDK makes the RDS database in question. This also means it knows the RDS needs to be created *before* the manifest:
+
+```
+# Map in the secret for the ghost DB
+eks_cluster.add_manifest("GhostExternalSecret",{
+    "apiVersion": "kubernetes-client.io/v1",
+    "kind": "ExternalSecret",
+    "metadata": {
+        "name": "ghost-database",
+        "namespace": "default"
+    },
+    "spec": {
+        "backendType": "secretsManager",
+        "data": [
+        {
+            "key": ghost_rds.secret.secret_name,
+            "name": "password",
+            "property": "password"
+        },
+        {
+            "key": ghost_rds.secret.secret_name,
+            "name": "dbname",
+            "property": "dbname"
+        },
+        {
+            "key": ghost_rds.secret.secret_name,
+            "name": "host",
+            "property": "host"
+        },
+        {
+            "key": ghost_rds.secret.secret_name,
+            "name": "username",
+            "property": "username"
+        }
+        ]
+    }
+})
+```
+
+### Have a look through the EKS console at our cluster and workloads
 
 1. Go to the EKS Service in the AWS Console (use the search box at the top of the page)
 1. Click on `Clusters` under EKS in the navigation pane on the left side
@@ -77,10 +202,34 @@ We'll kick off the Ghost CDK deployment (which will take awhile creating the MyS
 When we run our `ghost_example.py` CDK template there are both AWS and Kubernetes components that CDK provisions for us.
 ![Git Flow Diagram](diagram1.PNG?raw=true "Git Flow Diagram")
 
-We are also adding a new controller/operator to Kubernetes - [kubernetes-external-secrets]() - which is UPSERTing the AWS Secrets Manager secret that CDK is creating into Kubernetes so that we can easily consume this in our Pod(s). This joins the existing [AWS Load Balancer Controller]() which turns our Ingress Specs into an integration/delegation to the AWS Application Load Balancer (ALB).
+We are also adding a new controller/operator to Kubernetes - [kubernetes-external-secrets](https://github.com/external-secrets/kubernetes-external-secrets) - which is UPSERTing the AWS Secrets Manager secret that CDK is creating into Kubernetes so that we can easily consume this in our Pod(s). This joins the existing [AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.2/) which turns our Ingress Specs into an integration/delegation to the AWS Application Load Balancer (ALB).
 ![Operator Flow Diagram](diagram2.PNG?raw=true "Operator Flow Diagram")
 
-TODO copy and paste examples of how to cross-reference the CDK stacks/objects and how it imports the kube manifest files rather than having you copy/paste them into the template.
+### Cross-Stack CDK
+
+We're deploying Ghost in a totally seperate CDK stack in a seperate file. This is made possible by a few things:
+1. Some CDK Constructs like VPC can import object, with all the associated properties and methods, from existing environments. In the case of VPC you'll see this is all it takes to import our existing VPC we want to deploy into by its name:
+```
+vpc = ec2.Vpc.from_lookup(self, 'VPC', vpc_name="EKSClusterStack/VPC")
+```
+1. Other Constructs like EKS we need to tell it several of the parameters for it to reconstruct the object. Here we need to tell it a few things like the `open_id_connect_provider`, the `kubectl_role_arn`, etc. for it to give us an object we can call/use like we'd created the EKS cluster in *this* template. 
+
+We pass these parameters across our Stacks using CloudFormation Exports (Outputs in one CF stack we can reference in another):
+```
+eks_cluster = eks.Cluster.from_cluster_attributes(
+  self, "cluster",
+  cluster_name=core.Fn.import_value("EKSClusterName"),
+  open_id_connect_provider=eks.OpenIdConnectProvider.from_open_id_connect_provider_arn(
+    self, "EKSClusterOIDCProvider",
+    open_id_connect_provider_arn = core.Fn.import_value("EKSClusterOIDCProviderARN")
+  ),
+  kubectl_role_arn=core.Fn.import_value("EKSClusterKubectlRoleARN"),
+  vpc=vpc,
+  kubectl_security_group_id=core.Fn.import_value("EKSSGID"),
+  kubectl_private_subnet_ids=[vpc.private_subnets[0].subnet_id, vpc.private_subnets[1].subnet_id]
+)
+```
+![CF Exports](diagram3.PNG?raw=true "CF Exports")
 
 ### Once the deployment finishes we'll explore what now exists and connect to Ghost
 
