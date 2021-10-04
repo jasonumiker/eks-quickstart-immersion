@@ -11,6 +11,7 @@ from aws_cdk import (
 )
 import os
 
+
 class EKSLogsObjectResource(core.Construct):
     """EKS SDK updateClusterConfig
     Arguments:
@@ -20,14 +21,15 @@ class EKSLogsObjectResource(core.Construct):
 
     def __init__(self, scope: core.Construct, id: str, eks_name: str, eks_arn: str, log_retention=None) -> None:
         super().__init__(scope, id)
-        
+
         on_create = self.get_on_create_update(eks_name=eks_name)
 
         lambda_role = iam.Role(self, "LambdaRole",
-            assumed_by=iam.ServicePrincipal('lambda.amazonaws.com'),
-            managed_policies=[iam.ManagedPolicy.from_aws_managed_policy_name(
-                "service-role/AWSLambdaBasicExecutionRole")],
-            )
+                               assumed_by=iam.ServicePrincipal(
+                                   'lambda.amazonaws.com'),
+                               managed_policies=[iam.ManagedPolicy.from_aws_managed_policy_name(
+                                   "service-role/AWSLambdaBasicExecutionRole")],
+                               )
 
         lambda_policy = custom_resources.AwsCustomResourcePolicy.from_statements([
             iam.PolicyStatement(
@@ -38,13 +40,13 @@ class EKSLogsObjectResource(core.Construct):
         ])
 
         custom_resources.AwsCustomResource(scope=scope,
-            id=f'{id}-AWSCustomResource',
-            log_retention=log_retention,
-            on_create=on_create,
-            resource_type='Custom::AWS-EKS-Logs-Object',
-            role=lambda_role,
-            policy=lambda_policy
-        )
+                                           id=f'{id}-AWSCustomResource',
+                                           log_retention=log_retention,
+                                           on_create=on_create,
+                                           resource_type='Custom::AWS-EKS-Logs-Object',
+                                           role=lambda_role,
+                                           policy=lambda_policy
+                                           )
 
     def get_on_create_update(self, eks_name):
         create_params = {
@@ -63,6 +65,7 @@ class EKSLogsObjectResource(core.Construct):
             action='updateClusterConfig',
             service='EKS',
             parameters=create_params,
-            physical_resource_id=custom_resources.PhysicalResourceId.of(f'{eks_name}Log-CR')
+            physical_resource_id=custom_resources.PhysicalResourceId.of(
+                f'{eks_name}Log-CR')
         )
         return on_create
